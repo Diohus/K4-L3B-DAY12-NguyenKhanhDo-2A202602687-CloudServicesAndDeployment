@@ -10,17 +10,17 @@
 
 | Mục | Nội dung |
 |-----|----------|
-| Họ và tên | (điền họ tên) |
-| Mã học viên | (điền mã học viên) |
-| Repo | (điền link repo K4-L3B-DAY12-HoVaTen-MSSV-CloudServicesAndDeployment) |
+| Họ và tên | Nguyen Khanh Do (theo tên repository; kiểm tra lại dấu trước khi nộp) |
+| Mã học viên | 2A202602687 |
+| Repo | https://github.com/Diohus/K4-L3B-DAY12-NguyenKhanhDo-2A202602687-CloudServicesAndDeployment |
 
 ## Service
 
 | Mục | Nội dung |
 |-----|----------|
-| Public URL | https://TODO-thay-bang-url-that.up.railway.app |
-| Platform | Railway / Render / Cloud Run — (điền platform bạn dùng) |
-| Ngày deploy | (điền ngày) |
+| Public URL | https://day12-agent-production-52c1.up.railway.app |
+| Platform | Railway |
+| Ngày xác minh | 29/09/2026 |
 
 ## Biến Môi Trường Đã Set Trên Cloud
 
@@ -30,51 +30,83 @@ Ghi tên biến và **nguồn giá trị**, không ghi giá trị:
 |------|--------|---------|
 | `PORT` | ✅ | platform tự gán |
 | `AGENT_API_KEY` | ✅ | đặt trong dashboard, không nằm trong repo |
-| `REDIS_URL` | ✅ | (điền: Redis add-on của platform / Upstash / ...) |
+| `REDIS_URL` | ✅ | Railway Redis; `/ready` xác nhận kết nối hoạt động |
 | `RATE_LIMIT_PER_MINUTE` | ✅ | 10 |
 | `MONTHLY_BUDGET_USD` | ✅ | 10.0 |
 | `LOG_LEVEL` | ✅ | INFO |
 
 ## Lệnh Kiểm Tra
 
-Thay `<URL>` bằng Public URL ở trên:
+Chạy các lệnh sau trong **PowerShell**, tại thư mục gốc repo. Khóa API được đọc
+từ `.env` vào biến trong phiên terminal, không in ra màn hình. Các lệnh giả định
+khóa local giống khóa đã đặt trên Railway; nếu khác, dùng khóa Railway cho biến
+`$apiKey` trong phiên PowerShell (không ghi vào tài liệu hoặc commit).
 
-```bash
-# 1. Liveness — mong đợi 200 {"status":"ok"}
-curl -i <URL>/health
+```powershell
+$url = "https://day12-agent-production-52c1.up.railway.app"
+$apiKey = ((Get-Content .env | Where-Object { $_ -match '^AGENT_API_KEY=' } | Select-Object -First 1) -replace '^AGENT_API_KEY=', '')
+$body = @{ question = 'Hello' } | ConvertTo-Json -Compress
 
-# 2. Readiness — mong đợi 200 {"status":"ready"} (đã nối được Redis)
-curl -i <URL>/ready
+# 1–2. Liveness và readiness: mong đợi status=ok và status=ready
+Invoke-RestMethod -Uri "$url/health"
+Invoke-RestMethod -Uri "$url/ready"
 
-# 3. Không có API key — mong đợi 401
-curl -i -X POST <URL>/ask \
-  -H "Content-Type: application/json" \
-  -d '{"question":"Hello"}'
+# 3. Thiếu key: PowerShell ném exception cho HTTP 401; in mã trạng thái
+try {
+    Invoke-WebRequest -UseBasicParsing -Method Post -Uri "$url/ask" -ContentType 'application/json' -Body $body | Out-Null
+} catch {
+    [int]$_.Exception.Response.StatusCode
+}
 
-# 4. Có API key — mong đợi 200 kèm câu trả lời
-curl -i -X POST <URL>/ask \
-  -H "Content-Type: application/json" \
-  -H "X-API-Key: $AGENT_API_KEY" \
-  -H "X-User-Id: sv-test" \
-  -d '{"question":"Deploy là gì?"}'
+# 4. Có key: mong đợi 200 và câu trả lời
+$headers = @{ 'X-API-Key' = $apiKey; 'X-User-Id' = 'sv-ps-check' }
+$response = Invoke-WebRequest -UseBasicParsing -Method Post -Uri "$url/ask" -ContentType 'application/json' -Headers $headers -Body $body
+$response.StatusCode
+$response.Content
 
-# 5. Rate limit — gọi 15 lần, những lần cuối phải trả 429
-for i in $(seq 1 15); do
-  curl -s -o /dev/null -w "%{http_code} " -X POST <URL>/ask \
-    -H "Content-Type: application/json" \
-    -H "X-API-Key: $AGENT_API_KEY" \
-    -H "X-User-Id: sv-test" \
-    -d '{"question":"test"}'
-done; echo
+# 5. Rate limit: user riêng để không bị ảnh hưởng bởi các lần thử trước
+$rateHeaders = @{ 'X-API-Key' = $apiKey; 'X-User-Id' = "rate-$(Get-Date -Format yyyyMMddHHmmss)" }
+for ($i = 1; $i -le 15; $i++) {
+    try {
+        (Invoke-WebRequest -UseBasicParsing -Method Post -Uri "$url/ask" -ContentType 'application/json' -Headers $rateHeaders -Body $body).StatusCode
+    } catch {
+        [int]$_.Exception.Response.StatusCode
+    }
+}
 ```
 
 ## Kết Quả Chạy Thật
 
-Dán output của các lệnh trên vào đây:
+Kết quả gọi service công khai qua HTTPS ngày 29/09/2026. Giá trị API key được
+đọc từ `.env` local để kiểm tra và không được in vào tài liệu:
 
+```text
+GET /health 200 {"status":"ok","service":"day12-agent","version":"1.0.0"}
+GET /ready 200 {"status":"ready","redis":true}
+POST /ask 401 {"detail":"invalid or missing API key"}
+POST /ask với X-API-Key hợp lệ 200, có trường answer
+15 lần POST /ask cùng X-User-Id: 200 200 200 200 200 200 200 200 200 200 429 429 429 429 429
 ```
-(điền output)
+
+`pytest tests/test_cp5.py` qua 8 bài, bỏ qua bài xác thực khi không đặt
+`DEPLOY_API_KEY`. Khi truyền `DEPLOY_API_KEY` cùng giá trị key đã xác minh,
+checkpoint qua 9 bài; 4 bài fallback được bỏ qua do đang dùng cloud.
+
+### Kiểm tra local ngày 29/09/2026
+
+Stack Docker Compose đã chạy với `agent` và `redis` ở trạng thái healthy. Sau khi
+dựng lại `agent` với cấu hình `.env` hiện tại, các lời gọi đến
+`http://localhost:8000` cho kết quả:
+
+```text
+GET  /health                         200
+GET  /ready                          200
+POST /ask không có X-API-Key         401
+POST /ask có X-API-Key hợp lệ        200, history_length=0
+POST /ask lần tiếp theo cùng user    200, history_length=2
 ```
+
+Đây là kết quả local, được ghi riêng để đối chiếu với kết quả Railway phía trên.
 
 ## Ảnh Chụp Màn Hình
 
@@ -82,20 +114,3 @@ Dán output của các lệnh trên vào đây:
 
 - `screenshots/dashboard.png` — trang quản lý service trên platform
 - `screenshots/health.png` — kết quả gọi `/health` từ trình duyệt hoặc curl
-
----
-
-## Nếu Dùng Phương Án Dự Phòng
-
-Không đăng ký được tài khoản cloud? Vẫn nộp được bài, nhưng CP5 tối đa 60% điểm:
-
-1. Đặt `LOCAL_FALLBACK=true` trong `.env`
-2. Chạy `docker compose up -d` rồi kiểm tra `docker compose ps`
-3. Chụp màn hình vào `screenshots/`
-4. Chạy `pytest tests/test_cp5.py -v` — bộ test sẽ tự chuyển sang kiểm tra
-   `http://localhost:8000`
-5. Ghi rõ lý do không deploy được vào phần dưới đây:
-
-```
-(điền lý do nếu dùng phương án dự phòng, ngược lại xóa mục này)
-```
