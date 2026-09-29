@@ -114,3 +114,24 @@ POST /ask lần tiếp theo cùng user    200, history_length=2
 
 - `screenshots/dashboard.png` — trang quản lý service trên platform
 - `screenshots/health.png` — kết quả gọi `/health` từ trình duyệt hoặc curl
+
+## Cấu Hình CI/CD
+
+`DEPLOY_API_KEY` trong `.env` local là tùy chọn: điền bằng chính giá trị
+`AGENT_API_KEY` của service Railway nếu muốn chạy thêm bài test `/ask` có xác
+thực trong CP5. Biến này không dùng để triển khai và không được commit.
+
+Workflow `.github/workflows/ci.yml` cần các mục sau trong GitHub repository →
+**Settings → Secrets and variables → Actions**:
+
+| Loại | Tên | Lấy ở đâu |
+|------|-----|-----------|
+| Secret | `RAILWAY_TOKEN` | Railway project → Settings → Tokens: tạo Project Token cho environment `production` |
+| Variable | `RAILWAY_PROJECT_ID` | Railway project → Settings → General: Project ID |
+| Variable | `RAILWAY_SERVICE_NAME` | Tên service web trong Railway project (không phải Redis) |
+| Variable | `PUBLIC_URL` | `https://day12-agent-production-52c1.up.railway.app` |
+
+Trước khi push workflow, tắt **Autodeploy** của service web trong Railway →
+Service Settings. Như vậy lần deploy từ GitHub sẽ đi qua job `test` và `build`
+trước khi job `deploy` chạy. Sau khi push, kiểm tra tab GitHub Actions và badge
+đầu `README.md`; badge chỉ phản ánh kết quả thật sau khi workflow đã chạy.
